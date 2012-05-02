@@ -18,18 +18,43 @@ Ext.define('CustomApp', {
         },
         {
             xtype: 'container',
-            itemId: 'grid',
+            itemId: 'gridHolder',
             flex:2
         }
     ],
     
     launch: function() {
         appInstance = this;
-        this._findProblems();
+        this._installGrid();
     },
    
+   _installGrid:function() {
+        Rally.data.ModelFactory.getModel({
+            type:'Defect',
+            success:this._findProblems,
+            scope: this,
+        });
+   },
+   
    //Identify all tickets that have a problem; 
-   _findProblems: function() {
+   _findProblems: function(model) {
+       var selectHandler = Ext.bind(this._onSelect, this);
+       this.down('#gridHolder').add({
+             xtype: 'rallygrid',
+             model: model,
+             itemId: 'grid',
+             listeners: {
+                itemclick: {
+                    fn: selectHandler
+                }
+                },
+             columnCfgs:[
+                  'FormattedID',
+                  'Name',
+                  'State'
+              ],
+         });
+   
         this._findReopenedTickets();
    },
    
@@ -47,35 +72,56 @@ Ext.define('CustomApp', {
    _reopenedTicketHandler:function(reopenedTickets) {
        var objectID = reopenedTickets.length > 0 ? reopenedTickets[0].ObjectID : null;
        var index = 0;
-       var reopenedCount = 0;
-       var problems = [];
-       
-       for (;index < reopenedTickets.length; index++) {     
-           if (objectID != reopenedTickets[index].ObjectID) {
-                problems.push({ObjectID:objectID, ReopenedCount:reopenedCount});
-                objectID = reopenedTickets[index].ObjectID;
-                reopenedCount = 1;
-           } else {
-                reopenedCount++;
+       this.problems = {};
+       for (;index < reopenedTickets.length; index++) {   
+           var ticketID = reopenedTickets[index].ObjectID.toString();       
+           if (!this.problems[ticketID]) {
+                  this.problems[ticketID] = {ReopenedCount:0};
            }
+            this.problems[ticketID] ['ReopenedCount'] =  this.problems[ticketID] ['ReopenedCount'] +1;
        }
-       this._renderProblemTicketGrid(problems);
+       this._renderProblemTicketGrid(this.problems);
    },
    
-   _renderProblemTicketGrid:function(problems) {
-      debugger;
+   _renderProblemTicketGrid:function(problems) {       
+       this._showDetails("Select a Troubled ticket to see details");
+      var filter = this._createFilter(problems);
+      
+        var gridHolder = this.down('#gridHolder');
+        console.log('filtering');
+        gridHolder.down('#grid').filter(filter);
+   },
    
-       this._showDetails("Found " + problems.length + " problems");
+   _createFilter:function(problems) {
+         var filter;
+        if (problems.length == 0) {
+            return  Ext.create('Rally.data.QueryFilter', {
+                    property: 'ObjectID',
+                    operator: '=',
+                    value: ''
+                });
+          }
+            for (var objectID in problems) {
+                        var objectFilter = Ext.create('Rally.data.QueryFilter', {
+                            property: 'ObjectID',
+                            operator: '=',
+                            value: objectID
+                    });
+                    if (filter == null) {
+                        filter = objectFilter;
+                    } else {
+                        filter = filter.or(objectFilter);
+                    }
+            }
+            console.log('filter string = ' + filter.toString());
+            return filter;
    },
    
    //When a problem ticket is selected, update the details fields to show the identified problems
     _onSelect: function(view, record) {
-        // var oid = record.data.ObjectID;
-        // console.log(oid + ' was clicked', record.data);
-        // this._getHistory(record.data, this._analyze);
+        var oid = record.data.ObjectID.toString();
+        this._showDetails(record.data.FormattedID + " was reopened " + this.problems[oid]['ReopenedCount'] + " times");
     },
-    
-   
     
     _analyze:function(original, snapshots) {
         //console.log("Analyzing artifact " + snapshots[0].ObjectID);
